@@ -82,6 +82,7 @@ def create_persona(client, image):
     # 3. 最初の挨拶を作成し、履歴に追加
     try:
         # ペルソナ情報から名前を抽出して挨拶に使う
+        # Markdownの強調マークダウン（**）を削除し、改行で分割
         name = persona_text.split('**名前**:')[-1].splitlines()[0].strip().strip('* ')
     except:
         name = "謎のAI" # 抽出失敗時のフォールバック
@@ -166,10 +167,18 @@ else:
                 chat_session = st.session_state['chat_session']
                 
                 # ストリーミングで応答を受け取る
-                response = chat_session.send_message_stream(prompt)
+                response_stream = chat_session.send_message_stream(prompt)
                 
-                # ストリームを処理し、画面に表示
-                full_response = st.write_stream(response)
+                # --- ★★★ ここを修正しました ★★★ ---
+                # ストリームから純粋なテキストのみを抽出しながら表示する
+                full_response = ""
+                response_container = st.empty() # 応答を表示する場所を確保
                 
-                # 履歴にAIの応答を追加
+                for chunk in response_stream:
+                    # chunk.text にセリフだけが含まれています
+                    if hasattr(chunk, 'text'):
+                        full_response += chunk.text
+                        response_container.markdown(full_response)
+                        
+                # 応答の最終結果を履歴に追加
                 st.session_state['messages'].append({"role": "model", "content": full_response})
