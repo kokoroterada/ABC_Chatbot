@@ -116,27 +116,28 @@ def create_persona(client, uploaded_file):
     st.session_state['persona_created'] = True
     
     # ★★★ 2. ペルソナ情報に基づいて画像生成プロンプトを作成 ★★★
-    st.toast("ペルソナのイメージ画像を作成中...", icon="🎨")
-    image_prompt_response = client.models.generate_content(
-        model="gemini-2.5-flash", # プロンプト生成はテキストモデルでOK
-        contents=[IMAGE_PROMPT_GENERATION_INSTRUCTION.format(persona_info=persona_text)],
-        config=types.GenerateContentConfig(temperature=0.5),
-    )
-    image_generation_prompt = image_prompt_response.text
+    # Quota超過エラーを回避するため、画像生成処理を一時的にスキップ（コメントアウト）します。
+    # st.toast("ペルソナのイメージ画像を作成中...", icon="🎨")
+    # image_prompt_response = client.models.generate_content(
+    #     model="gemini-2.5-flash", # プロンプト生成はテキストモデルでOK
+    #     contents=[IMAGE_PROMPT_GENERATION_INSTRUCTION.format(persona_info=persona_text)],
+    #     config=types.GenerateContentConfig(temperature=0.5),
+    # )
+    # image_generation_prompt = image_prompt_response.text
     
     # ★★★ 3. 画像生成AIを呼び出し、画像を生成 ★★★
-    image_model_response = client.models.generate_content(
-        model="gemini-2.5-flash-image-preview", # 画像生成モデル
-        contents=[image_generation_prompt],
-        config=types.GenerateContentConfig(temperature=0.7),
-    )
-    # 生成された画像は通常、Imageオブジェクトのリストとして返される
-    if image_model_response.candidates and image_model_response.candidates[0].content.parts:
-        # 最初に見つかった画像を取得
-        first_image_part = next((p for p in image_model_response.candidates[0].content.parts if hasattr(p, 'image') and p.image), None)
-        if first_image_part:
-            # st.image で表示するためにImageオブジェクトをそのまま保存 (またはbase64エンコードされたURI)
-            st.session_state['persona_image_url'] = first_image_part.image # Imageオブジェクトを直接保存
+    # image_model_response = client.models.generate_content(
+    #     model="gemini-2.5-flash-image-preview", # 画像生成モデル
+    #     contents=[image_generation_prompt],
+    #     config=types.GenerateContentConfig(temperature=0.7),
+    # )
+    # # 生成された画像は通常、Imageオブジェクトのリストとして返される
+    # if image_model_response.candidates and image_model_response.candidates[0].content.parts:
+    #     # 最初に見つかった画像を取得
+    #     first_image_part = next((p for p in image_model_response.candidates[0].content.parts if hasattr(p, 'image') and p.image), None)
+    #     if first_image_part:
+    #         # st.image で表示するためにImageオブジェクトをそのまま保存 (またはbase64エンコードされたURI)
+    #         st.session_state['persona_image_url'] = first_image_part.image # Imageオブジェクトを直接保存
     
     # 4. ペルソナ情報を使ったチャットセッションの開始 (既存ロジック)
     system_instruction_text = (
@@ -212,7 +213,8 @@ if not st.session_state['persona_created']:
             try:
                 with st.spinner('AIがファイルを分析し、ペルソナを作成中です...'):
                     create_persona(client, input_file)
-                    st.success("ペルソナの作成とイメージ画像の生成が完了しました！チャットを開始してください。")
+                    # 画像生成をスキップしたため、メッセージを調整
+                    st.success("ペルソナの作成が完了しました！チャットを開始してください。") 
                     
                 st.rerun() # 画面を再実行してチャットUIを表示させる
             except Exception as e:
@@ -229,6 +231,7 @@ else:
         st.button("🗑️ 会話をリセット", on_click=reset_conversation)
 
     # ★★★ 生成されたペルソナ画像を表示 ★★★
+    # 画像生成がスキップされているため、画像は表示されません。
     if st.session_state['persona_image_url']:
         st.image(st.session_state['persona_image_url'], caption="AIが生成したペルソナのイメージ画像", width=300)
     
