@@ -82,7 +82,7 @@ def create_persona(client, uploaded_file):
         uploaded_file.seek(0) # ファイルポインタを先頭に戻す
         pdf_bytes = uploaded_file.read()
         
-        # ★★★ 修正箇所: Part.from_bytes() を使用してMIMEタイプを明示 ★★★
+        # Part.from_bytes() を使用してMIMEタイプを明示
         contents_list.append(types.Part.from_bytes(data=pdf_bytes, mime_type='application/pdf'))
         current_persona_prompt = PDF_PERSONA_PROMPT
     else:
@@ -132,6 +132,21 @@ def create_persona(client, uploaded_file):
     
     return persona_text
 
+# --- 会話リセット関数 ---
+def reset_conversation():
+    """会話履歴のみをリセットする"""
+    if st.session_state['persona_created']:
+        st.session_state['messages'] = []
+        # 新しいチャットセッションを作成し直す必要はないが、最初の挨拶を再度追加する
+        try:
+            name = st.session_state['persona_info'].split('**名前**:')[-1].splitlines()[0].strip().strip('* ')
+        except:
+            name = "謎のAI"
+        initial_greeting = f"やあ！私は{name}だよ。もう一度、私に話しかけてみてね。"
+        st.session_state['messages'].append({"role": "model", "content": initial_greeting})
+        st.toast("会話履歴をリセットしました！", icon="🗑️")
+
+
 # --- 画面のレイアウトとUI ---
 
 st.title('🤖 画像・PDFのペルソナと会話するチャットボット')
@@ -177,7 +192,14 @@ if not st.session_state['persona_created']:
 # 3. チャットフェーズ (ペルソナ作成済み状態)
 else:
     # ペルソナ情報の表示
-    st.subheader("🤖 あなたのチャット相手のペルソナ情報")
+    # 情報を表示する列とリセットボタンを配置する列に分ける
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.subheader("🤖 あなたのチャット相手のペルソナ情報")
+    with col2:
+        # 会話リセットボタンの追加
+        st.button("🗑️ 会話をリセット", on_click=reset_conversation)
+
     st.markdown(st.session_state['persona_info'])
     st.markdown("---")
 
