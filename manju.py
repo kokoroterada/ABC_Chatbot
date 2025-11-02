@@ -18,15 +18,18 @@ if 'persona_created' not in st.session_state:
 if 'persona_info' not in st.session_state:
     # 作成されたペルソナ情報 (Markdownテキスト)
     st.session_state['persona_info'] = None
+if 'persona_image_url' not in st.session_state:
+    # 生成されたペルソナ画像のURL
+    st.session_state['persona_image_url'] = None
 if 'chat_session' not in st.session_state:
     # ペルソナの性格設定がされたチャットセッション
     st.session_state['chat_session'] = None
 if 'messages' not in st.session_state:
     # 会話履歴を格納するリスト
     st.session_state['messages'] = []
-if 'image_key' not in st.session_state:
-    # 新しい画像がアップロードされたかチェックするためのキー
-    st.session_state['image_key'] = None
+if 'file_key' not in st.session_state:
+    # 新しいファイルがアップロードされたかチェックするためのキー
+    st.session_state['file_key'] = None
 
 
 # --- AI（Gemini）の設定と初期化 ---
@@ -37,7 +40,7 @@ api_from_streamlite = st.secrets["GEMINI_KEY"]
 # AIクライアントの準備
 client = Client(api_key=api_from_streamlite)
 
-# --- ペルソナ生成のためのプロンプト ---
+# --- プロンプト定義 ---
 
 # 画像ファイルがアップロードされた場合に使うプロンプト
 PERSONA_PROMPT = """
@@ -62,6 +65,17 @@ PDF_PERSONA_PROMPT = """
 作成したペルソナ情報のみを出力し、それ以外のコメントや挨拶は一切含めないでください。
 """
 
+# 画像生成AIのためのプロンプトを生成する指示
+IMAGE_PROMPT_GENERATION_INSTRUCTION = """
+以下のペルソナ情報に基づいて、このキャラクターを表すイラストのプロンプトを英語で生成してください。
+プロンプトは画像生成AIが理解しやすいように、詳細かつ具体的に記述し、複数のキーワードや描写を含めてください。
+**例:** "A vibrant, cheerful sun character with a warm smile, made of golden light, floating in a clear blue sky, cartoon style, warm colors, gentle rays."
+**例:** "An old, wise grandfather clock with a gentle face, wearing a monocle, sitting in a dimly lit antique shop, realistic painting, detailed, nostalgic atmosphere."
+生成されたプロンプト以外は一切含めないでください。
+
+ペルソナ情報:
+{persona_info}
+"""
 
 # --- ペルソナ作成処理関数 ---
 def create_persona(client, uploaded_file):
@@ -101,14 +115,35 @@ def create_persona(client, uploaded_file):
     st.session_state['persona_info'] = persona_text
     st.session_state['persona_created'] = True
     
-    # 2. ペルソナ情報を使ったチャットセッションの開始
-    # ペルソナ情報を「システム指示」として設定し、AIにキャラクターになりきらせる
+    # ★★★ 2. ペルソナ情報に基づいて画像生成プロンプトを作成 ★★★
+    st.toast("ペルソナのイメージ画像を作成中...", icon="🎨")
+    image_prompt_response = client.models.generate_content(
+        model="gemini-2.5-flash", # プロンプト生成はテキストモデルでOK
+        contents=[IMAGE_PROMPT_GENERATION_INSTRUCTION.format(persona_info=persona_text)],
+        config=types.GenerateContentConfig(temperature=0.5),
+    )
+    image_generation_prompt = image_prompt_response.text
+    
+    # ★★★ 3. 画像生成AIを呼び出し、画像を生成 ★★★
+    image_model_response = client.models.generate_content(
+        model="gemini-2.5-flash-image-preview", # 画像生成モデル
+        contents=[image_generation_prompt],
+        config=types.GenerateContentConfig(temperature=0.7),
+    )
+    # 生成された画像は通常、Imageオブジェクトのリストとして返される
+    if image_model_response.candidates and image_model_response.candidates[0].content.parts:
+        # 最初に見つかった画像を取得
+        first_image_part = next((p for p in image_model_response.candidates[0].content.parts if hasattr(p, 'image') and p.image), None)
+        if first_image_part:
+            # st.image で表示するためにImageオブジェクトをそのまま保存 (またはbase64エンコードされたURI)
+            st.session_state['persona_image_url'] = first_image_part.image # Imageオブジェクトを直接保存
+    
+    # 4. ペルソナ情報を使ったチャットセッションの開始 (既存ロジック)
     system_instruction_text = (
         f"あなたは今、以下のペルソナに基づいて応答するチャットボットです。このペルソナを厳守し、あなたの生い立ちから考えられる知識や感情で応答してください。\n\n"
         f"ペルソナ情報:\n{persona_text}"
     )
     
-    # 新しいチャットセッションを作成
     st.session_state['chat_session'] = client.chats.create(
         model="gemini-2.5-flash",
         config=types.GenerateContentConfig(
@@ -116,17 +151,14 @@ def create_persona(client, uploaded_file):
         )
     )
     
-    # 3. 最初の挨拶を作成し、履歴に追加
+    # 5. 最初の挨拶を作成し、履歴に追加 (既存ロジック)
     try:
-        # ペルソナ情報から名前を抽出して挨拶に使う
-        # Markdownの強調マークダウン（**）を削除し、改行で分割
         name = persona_text.split('**名前**:')[-1].splitlines()[0].strip().strip('* ')
     except:
-        name = "謎のAI" # 抽出失敗時のフォールバック
+        name = "謎のAI"
         
     initial_greeting = f"やあ！私は{name}だよ。私についての質問はもちろん、なんでも話してくれていいんだよ。"
     
-    # 会話履歴の初期化と最初のメッセージ追加
     st.session_state['messages'] = []
     st.session_state['messages'].append({"role": "model", "content": initial_greeting})
     
@@ -153,15 +185,16 @@ st.title('🤖 画像・PDFのペルソナと会話するチャットボット')
 st.markdown("画像またはPDFをアップロードして「ペルソナ作成」ボタンを押すと、ファイルが擬人化されてあなたとお話します！")
 st.markdown("---")
 
-# 1. 画像アップローダーをPDFに対応
+# 1. ファイルアップローダー
 input_file = st.file_uploader("🖼️ ファイルを選んでね", type=['png', 'jpg', 'jpeg', 'pdf'])
 
 # ファイルが新しくアップロードされたかチェックし、リセットが必要なら実行
-if input_file and st.session_state['image_key'] != input_file.name:
+if input_file and st.session_state['file_key'] != input_file.name:
     # 新しいファイルなので、ペルソナ作成状態をリセット
-    st.session_state['image_key'] = input_file.name
+    st.session_state['file_key'] = input_file.name
     st.session_state['persona_created'] = False
     st.session_state['persona_info'] = None
+    st.session_state['persona_image_url'] = None # 画像URLもリセット
     st.session_state['chat_session'] = None
     st.session_state['messages'] = []
     st.toast("新しいファイルがアップロードされました。ペルソナを作成しましょう！", icon="🖼️")
@@ -176,15 +209,12 @@ if not st.session_state['persona_created']:
     
     if st.button(button_label, disabled=is_disabled, help="画像またはPDFをアップロードすると押せるようになります。"):
         if input_file:
-            # ペルソナ生成ロジックの実行
             try:
                 with st.spinner('AIがファイルを分析し、ペルソナを作成中です...'):
-                    # input_file を create_persona に渡す
                     create_persona(client, input_file)
-                    st.success("ペルソナの作成が完了しました！チャットを開始してください。")
+                    st.success("ペルソナの作成とイメージ画像の生成が完了しました！チャットを開始してください。")
                     
-                # 画面を再実行してチャットUIを表示させる
-                st.rerun() 
+                st.rerun() # 画面を再実行してチャットUIを表示させる
             except Exception as e:
                 st.error(f"ペルソナ作成中にエラーが発生しました: {e}")
                 print(f"Error during persona creation: {e}")
@@ -192,20 +222,21 @@ if not st.session_state['persona_created']:
 # 3. チャットフェーズ (ペルソナ作成済み状態)
 else:
     # ペルソナ情報の表示
-    # 情報を表示する列とリセットボタンを配置する列に分ける
     col1, col2 = st.columns([3, 1])
     with col1:
         st.subheader("🤖 あなたのチャット相手のペルソナ情報")
     with col2:
-        # 会話リセットボタンの追加
         st.button("🗑️ 会話をリセット", on_click=reset_conversation)
 
+    # ★★★ 生成されたペルソナ画像を表示 ★★★
+    if st.session_state['persona_image_url']:
+        st.image(st.session_state['persona_image_url'], caption="AIが生成したペルソナのイメージ画像", width=300)
+    
     st.markdown(st.session_state['persona_info'])
     st.markdown("---")
 
     # チャット履歴の表示
     for message in st.session_state['messages']:
-        # st.chat_messageを使って、roleに応じてアイコンを自動で表示
         with st.chat_message(message["role"] if message["role"] != "model" else "assistant"):
             st.markdown(message["content"])
 
@@ -213,30 +244,23 @@ else:
     prompt = st.chat_input("ペルソナに話しかけてみよう！")
     
     if prompt:
-        # ユーザーの質問を履歴に追加
         st.session_state['messages'].append({"role": "user", "content": prompt})
         
-        # ユーザーのメッセージを画面に表示
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # AIの応答生成
         with st.chat_message("assistant"):
             with st.spinner('ペルソナが考え中です...'):
                 chat_session = st.session_state['chat_session']
                 
-                # ストリーミングで応答を受け取る
                 response_stream = chat_session.send_message_stream(prompt)
                 
-                # ストリームから純粋なテキストのみを抽出しながら表示する
                 full_response = ""
-                response_container = st.empty() # 応答を表示する場所を確保
+                response_container = st.empty()
                 
                 for chunk in response_stream:
-                    # chunk.text にセリフだけが含まれています
                     if hasattr(chunk, 'text'):
                         full_response += chunk.text
                         response_container.markdown(full_response)
                         
-                # 応答の最終結果を履歴に追加
                 st.session_state['messages'].append({"role": "model", "content": full_response})
