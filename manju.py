@@ -50,10 +50,9 @@ if st.button("Analyze"):
                 pdf_bytes = input_pdf.getvalue()
                 
                 # Gemini APIにファイルをアップロードし、Fileオブジェクトを取得
-                # mime_typeは 'application/pdf' を指定
+                # 'mime_type'引数を削除しました
                 file_object = client.files.upload(
-                    file=pdf_bytes, 
-                    mime_type='application/pdf'
+                    file=pdf_bytes # <-- 'mime_type'引数を削除
                 )
                 
                 # アップロードされたファイルオブジェクトをコンテンツリストに追加
@@ -94,13 +93,14 @@ if st.button("Analyze"):
                 # 最後にアップロードしたファイルを削除 (リソースの解放)
                 for f in uploaded_files:
                     try:
+                        # 削除が失敗しても処理を止めない
                         client.files.delete(name=f.name)
                     except Exception as e:
-                        print(f"ファイルの削除に失敗しました: {e}") # Streamlitの画面には出さない
+                        # 開発中にデバッグ用として出力
+                        print(f"ファイルの削除に失敗しました: {e}") 
                 
         # --- 画像もPDFもない場合 (通常のチャット) ---
         elif input_text:
-            # ... (通常のチャットロジックは変更なし) ...
             if input_text != 'stop':
                 response = chat.send_message_stream(input_text)
                 response_text = "".join([part.text for part in response if hasattr(part, 'text')])
