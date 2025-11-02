@@ -38,6 +38,8 @@ api_from_streamlite = st.secrets["GEMINI_KEY"]
 client = Client(api_key=api_from_streamlite)
 
 # --- ペルソナ生成のためのプロンプト ---
+
+# 画像ファイルがアップロードされた場合に使うプロンプト
 PERSONA_PROMPT = """
 あなたは、アップロードされた画像を「人間のような存在」として捉え、その画像を擬人化したキャラクターの「ペルソナ」を作成するAIです。
 以下の3つの要素を考え、日本語のMarkdown形式で記述してください。
@@ -48,15 +50,48 @@ PERSONA_PROMPT = """
 
 作成したペルソナ情報のみを出力し、それ以外のコメントや挨拶は一切含めないでください。
 """
+# PDFファイルがアップロードされた場合に使うプロンプト
+PDF_PERSONA_PROMPT = """
+あなたは、アップロードされたPDFファイルを「書類を擬人化した存在」として捉え、そのキャラクターの「ペルソナ」を作成するAIです。
+ファイルの内容と性質に基づいて以下の3つの要素を考え、日本語のMarkdown形式で記述してください。
+
+1. **名前**: このキャラクターの名前（例：博士、契約書のジョニー）
+2. **性格**: このキャラクターの性格と口調。あなたは今後の会話でこの口調を守り通します。
+3. **生い立ち/背景**: PDFファイルの内容に基づいて想像した、簡単な目的や物語、役割。
+
+作成したペルソナ情報のみを出力し、それ以外のコメントや挨拶は一切含めないでください。
+"""
+
 
 # --- ペルソナ作成処理関数 ---
-def create_persona(client, image):
-    """画像を分析し、ペルソナ情報を作成してチャットセッションを開始する"""
+def create_persona(client, uploaded_file):
+    """ファイルを分析し、ペルソナ情報を作成してチャットセッションを開始する"""
     
+    # 渡すコンテンツとプロンプトを準備
+    contents_list = []
+    
+    # ファイルタイプによって処理を分岐
+    file_type = uploaded_file.type
+    
+    if 'image' in file_type:
+        # 画像ファイルの場合
+        contents_list.append(Image.open(uploaded_file))
+        current_persona_prompt = PERSONA_PROMPT
+    elif 'pdf' in file_type:
+        # PDFファイルの場合、UploadedFileオブジェクトからバイナリデータを取得
+        # Gemini APIはPDFバイナリを直接処理できます
+        uploaded_file.seek(0) # ファイルポインタを先頭に戻す
+        contents_list.append(uploaded_file.read())
+        current_persona_prompt = PDF_PERSONA_PROMPT
+    else:
+        raise ValueError("サポートされていないファイル形式です。画像（PNG/JPG/JPEG）またはPDFファイルをアップロードしてください。")
+
+    contents_list.append(current_persona_prompt)
+        
     # 1. ペルソナ情報の生成
     response = client.models.generate_content(
         model="gemini-2.5-flash", 
-        contents=[image, PERSONA_PROMPT],
+        contents=contents_list,
         config=types.GenerateContentConfig(temperature=0.7),
     )
     
@@ -97,38 +132,38 @@ def create_persona(client, image):
 
 # --- 画面のレイアウトとUI ---
 
-st.title('🤖 画像のペルソナと会話するチャットボット')
-st.markdown("画像をアップロードして「ペルソナ作成」ボタンを押すと、画像が擬人化されてあなたとお話します！")
+st.title('🤖 画像・PDFのペルソナと会話するチャットボット')
+st.markdown("画像またはPDFをアップロードして「ペルソナ作成」ボタンを押すと、ファイルが擬人化されてあなたとお話します！")
 st.markdown("---")
 
-# 1. 画像アップローダー
-input_image = st.file_uploader("🖼️ 画像ファイルを選んでね", type=['png', 'jpg', 'jpeg'])
+# 1. 画像アップローダーをPDFに対応
+input_file = st.file_uploader("🖼️ ファイルを選んでね", type=['png', 'jpg', 'jpeg', 'pdf'])
 
-# 画像が新しくアップロードされたかチェックし、リセットが必要なら実行
-if input_image and st.session_state['image_key'] != input_image.name:
-    # 新しい画像なので、ペルソナ作成状態をリセット
-    st.session_state['image_key'] = input_image.name
+# ファイルが新しくアップロードされたかチェックし、リセットが必要なら実行
+if input_file and st.session_state['image_key'] != input_file.name:
+    # 新しいファイルなので、ペルソナ作成状態をリセット
+    st.session_state['image_key'] = input_file.name
     st.session_state['persona_created'] = False
     st.session_state['persona_info'] = None
     st.session_state['chat_session'] = None
     st.session_state['messages'] = []
-    st.toast("新しい画像がアップロードされました。ペルソナを作成しましょう！", icon="🖼️")
+    st.toast("新しいファイルがアップロードされました。ペルソナを作成しましょう！", icon="🖼️")
 
 
 # 2. ペルソナ作成フェーズ (初期状態)
 if not st.session_state['persona_created']:
     
-    # 1点目の要望: 画像がないとボタンを押せないようにする
-    is_disabled = input_image is None
-    button_label = "✨ 画像からAIのペルソナを作成する"
+    # ファイルがないとボタンを押せないようにする
+    is_disabled = input_file is None
+    button_label = "✨ ファイルからAIのペルソナを作成する"
     
-    if st.button(button_label, disabled=is_disabled, help="画像をアップロードすると押せるようになります。"):
-        if input_image:
+    if st.button(button_label, disabled=is_disabled, help="画像またはPDFをアップロードすると押せるようになります。"):
+        if input_file:
             # ペルソナ生成ロジックの実行
             try:
-                with st.spinner('AIが画像を分析し、ペルソナを作成中です...'):
-                    image = Image.open(input_image)
-                    create_persona(client, image)
+                with st.spinner('AIがファイルを分析し、ペルソナを作成中です...'):
+                    # input_file を create_persona に渡す
+                    create_persona(client, input_file)
                     st.success("ペルソナの作成が完了しました！チャットを開始してください。")
                     
                 # 画面を再実行してチャットUIを表示させる
@@ -169,7 +204,6 @@ else:
                 # ストリーミングで応答を受け取る
                 response_stream = chat_session.send_message_stream(prompt)
                 
-                # --- ★★★ ここを修正しました ★★★ ---
                 # ストリームから純粋なテキストのみを抽出しながら表示する
                 full_response = ""
                 response_container = st.empty() # 応答を表示する場所を確保
