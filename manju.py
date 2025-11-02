@@ -8,7 +8,7 @@ import os
 
 
 
-st.title('ABC chatbot')
+st.title('chatbot')
 #input_chat = st.selectbox('Ask your question here)
 # file uploader for adding image file
 input_image = st.file_uploader("Choose an image file", type=['png', 'jpg', 'jpeg'])
