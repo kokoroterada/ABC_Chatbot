@@ -3,6 +3,8 @@ from google import genai
 from google.genai import types
 from google.genai import Client
 from PIL import Image
+# PDFを画像に変換するためのライブラリをインポート
+from pdf2image import convert_from_bytes 
 import os
 import io
 
@@ -30,7 +32,6 @@ if st.button("Analyze"):
     try:
         # --- 分析に必要なコンテンツリストの初期化 ---
         contents_to_send = []
-        uploaded_files = [] # アップロードしたファイルを保持するリスト (後で削除するために使用)
         
         # 1. 画像ファイルをcontentsリストに追加
         if input_image:
@@ -42,27 +43,26 @@ if st.button("Analyze"):
             except Exception as e:
                 st.error(f"画像ファイルの処理中にエラーが発生しました: {e}")
                 
-        # 2. PDFファイルをGeminiのファイルサービスにアップロードしてcontentsリストに追加 (重要: 修正箇所)
+        # 2. PDFファイルを画像に変換してcontentsリストに追加 (重要: 修正箇所)
         if input_pdf:
-            st.info("PDFファイルをGeminiサービスにアップロード中...")
+            st.info("PDFを画像に変換中...")
             try:
                 # アップロードされたファイルをバイトデータとして読み込む
                 pdf_bytes = input_pdf.getvalue()
                 
-                # Gemini APIにファイルをアップロードし、Fileオブジェクトを取得
-                # 'mime_type'引数を削除しました
-                file_object = client.files.upload(
-                    file=pdf_bytes # <-- 'mime_type'引数を削除
-                )
+                # pdf2imageを使用して、バイトデータからPIL Imageオブジェクトのリストに変換
+                # ページ数が多い場合、ここで時間がかかります
+                images = convert_from_bytes(pdf_bytes)
                 
-                # アップロードされたファイルオブジェクトをコンテンツリストに追加
-                contents_to_send.append(file_object)
-                uploaded_files.append(file_object) # 後で削除するために保持
+                # 変換された画像をcontentsリストに追加
+                # PDFの全ページが、それぞれ独立した画像としてモデルに送られます
+                contents_to_send.extend(images) 
                 
-                st.success(f"PDFファイル '{input_pdf.name}' のアップロードが完了しました。")
+                st.success(f"PDF ({len(images)}ページ) の画像変換が完了しました。")
                 
             except Exception as e:
-                st.error(f"PDFファイルのアップロード中にエラーが発生しました。: {e}")
+                st.error(f"PDFの画像変換中にエラーが発生しました。: {e}")
+                st.warning("ヒント: 'pdf2image'と、その前提となる'Poppler'が正しくインストールされているか確認してください。")
                 
         # 3. テキスト入力をcontentsリストに追加
         if input_text:
@@ -72,10 +72,11 @@ if st.button("Analyze"):
         # --- モデルへの送信ロジック ---
         if contents_to_send:
             try:
-                # 画像/PDFとテキストを含むリクエスト
+                # 画像/PDF画像とテキストを含むリクエスト
+                # PDFが画像として扱われるため、ファイルのアップロード/削除処理は不要になりました
                 response = client.models.generate_content(
                     model="gemini-2.5-flash", 
-                    contents=contents_to_send, # 画像、PDF参照、テキストを全て渡す
+                    contents=contents_to_send, # 画像、PDF画像、テキストを全て渡す
                     config=types.GenerateContentConfig(
                         temperature=0.1
                     ),
@@ -89,16 +90,8 @@ if st.button("Analyze"):
             except Exception as e:
                 st.error(f"Gemini APIでの分析中にエラーが発生しました: {e}")
             
-            finally:
-                # 最後にアップロードしたファイルを削除 (リソースの解放)
-                for f in uploaded_files:
-                    try:
-                        # 削除が失敗しても処理を止めない
-                        client.files.delete(name=f.name)
-                    except Exception as e:
-                        # 開発中にデバッグ用として出力
-                        print(f"ファイルの削除に失敗しました: {e}") 
-                
+            # 💡 以前のコードで必要だった file upload/delete 処理は不要になりました
+            
         # --- 画像もPDFもない場合 (通常のチャット) ---
         elif input_text:
             if input_text != 'stop':
