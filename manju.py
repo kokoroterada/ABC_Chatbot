@@ -78,10 +78,12 @@ def create_persona(client, uploaded_file):
         contents_list.append(Image.open(uploaded_file))
         current_persona_prompt = PERSONA_PROMPT
     elif 'pdf' in file_type:
-        # PDFファイルの場合、UploadedFileオブジェクトからバイナリデータを取得
-        # Gemini APIはPDFバイナリを直接処理できます
+        # PDFファイルの場合、UploadedFileオブジェクトからバイナリデータを取得し、Partとしてラップ
         uploaded_file.seek(0) # ファイルポインタを先頭に戻す
-        contents_list.append(uploaded_file.read())
+        pdf_bytes = uploaded_file.read()
+        
+        # ★★★ 修正箇所: Part.from_bytes() を使用してMIMEタイプを明示 ★★★
+        contents_list.append(types.Part.from_bytes(data=pdf_bytes, mime_type='application/pdf'))
         current_persona_prompt = PDF_PERSONA_PROMPT
     else:
         raise ValueError("サポートされていないファイル形式です。画像（PNG/JPG/JPEG）またはPDFファイルをアップロードしてください。")
